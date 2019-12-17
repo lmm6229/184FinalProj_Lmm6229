@@ -1,0 +1,208 @@
+---
+title: "Final Project on Real Estate Data"
+author: "Luke Morris"
+date: "12/16/2019"
+output: html_notebook
+---
+# 2019: Guest Circle Yearly Report
+
+For this project, I originally picked out some soccer statistics data with the idea of trying to construct a betting model. However, after talking to my father over break about the family business he runs, I had the opportunity to get my hands on two of his messy data sets and test out my skills while providing a tool for my father.
+
+I thought it would be really neat to treat this project like a template to email property owners about how their properties are performing. This being said, my main focus of this project was to clean the data into a glyph friendly fashion. This allows me to graph different variables and use different tools than my father has access to in excel.
+
+
+## Research Questions of interest
+The overarching research question of this project that I am looking to address is, how is the particular property of interest performing in terms of volume of bookings and cancels. I also wanted to address the impacts of different variables like # of children, # of adults, time of year and how it may impact the business and customers.
+
+```{r}
+library(mosaicData)
+library(DataComputing)
+library(tidyr)
+library(devtools)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(zipcode)
+library(lubridate)
+```
+
+
+
+
+## How are the properties performing under Bear Mt management?
+
+I began by cleaning the data, using different functions and expressions to find sums, averages, and a ratio for the # of children per adult. This resulted in a cleaned data set to work with, and two simple but informative bar graphs for how all properties performed compared to the average number of bookings and cancelations across the portfolio. 
+```{r echo=TRUE}
+
+bmre.payments. <- read.csv("/Users/lukem/Downloads/bmre.payments..csv")
+
+
+bmre.reservations <- read.csv("/Users/lukem/Downloads/bmre.reservations.csv")
+
+#checking data for red flags
+
+head(bmre.reservations)
+head(bmre.payments.)
+
+nrow(bmre.reservations)
+nrow(bmre.payments.)
+
+glimpse(bmre.reservations)
+glimpse(bmre.payments.)
+
+
+
+#What is the current state of the reservation requests for each property?
+
+Status_Check <- bmre.reservations %>%
+  select(Property.Name, Status) %>%
+  group_by(Property.Name, Status) %>%
+  tally() %>% rename(status_count = n)
+
+
+Status_Check
+
+#Propert.Name is too long for graphing, lets trim it down to the last name of the owner, which is the first word in the variable
+
+
+Status_Check$Owner_Name <- gsub("([A-Za-z]+).*", "\\1", Status_Check$Property.Name) 
+Status_Check
+
+
+
+#Spreading the data to treat variable Status as a count for all factors within it
+
+New_wide <- Status_Check %>%
+  spread(key = Status, value = status_count) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+New_wide
+
+New_wide %>%
+  select(Owner_Name, Booked, Cancelled, Reserved)
+
+#simple bar graph to look at the number of bookings per property relative to the average number of bookings
+
+Booked_Plot <- New_wide %>% 
+  ggplot(aes(x = Owner_Name,  y = Booked)) + 
+  geom_bar(stat = "identity", fill = "blue") +  
+  geom_hline(aes(yintercept = mean(Booked)), colour = "green") +
+  ggtitle("Total bookings for each property, compared to average of properties") + theme_gray()
+
+
+
+Booked_Plot
+
+```
+
+
+```{r echo=TRUE}
+
+#lets take a look at a plot that looks at the canceled reservations for each owner
+
+Cancel_Plot <- New_wide %>%
+  ggplot(aes(x = Owner_Name,  y = Cancelled)) + 
+  geom_bar(stat = "identity", fill = "red") +
+  geom_hline(aes(yintercept = mean(Cancelled)), colour = "black") +
+  ggtitle("Cancellations for each Home Owner") +
+  theme_gray()
+
+Cancel_Plot
+
+```
+
+
+
+
+### What's going on in the plots?
+
+I chose to plot these graphs seperately because all though they are definitely correlated due to the natural fact that as more people book a property, more people are also going to cancel. But, i thought it would be better to present the number of cancellations seperately so that the home_owner overlook cancellations as an area of improvement just because he has more Bookings. 
+
+
+
+```{r echo=TRUE}
+
+head(bmre.payments.)
+nrow(bmre.payments.)
+
+#Joining the reservation data to the payment data by Reservation.ID variable, I then created a filter function to select a specific property.
+
+joint_pay_res <- bmre.payments. %>%
+  inner_join(bmre.reservations, by = c("Reservation.ID" = "Reservation.ID")) %>%
+  filter(Property.Name == "Pine Swamp - 45 Guest Circle")
+
+joint_pay_res
+
+#checking to make sure the inner join went smoothly between the reservation and payment data
+
+nrow(joint_pay_res)
+glimpse(joint_pay_res)
+
+
+#Cleaning up the data, by using regular expressions as well as date functions to remove extra characters in profit, get the dates in the correct format, and to select the variables I wish to analyze. I also calculated the ratio of children to adults in order to use that in my analysis.
+
+Cleaned <- joint_pay_res %>%
+  mutate(
+    Check_in = mdy(Check.in), Check_out =  mdy(Check.out),
+    Profit = as.numeric(gsub("[\\$, \\($)]", "",Payable.To.You)),
+    ServiceFee = as.numeric(gsub("[\\$, \\($)]", "",Service.Fee)),
+    month = lubridate::month(Check_in),
+    TA = (Adults),
+    TC = (Children),
+    Child_ratio = round((TC/(TA + TC)), digits = 2)
+    ) %>%
+  select(month, Check_in, Check_out, Nights.Stay, Adults, Children, Child_ratio, Payment.Type, Phone, Status, Profit, ServiceFee)
+
+Cleaned
+
+
+#Finding total profit for each length of stay.
+
+Profits_per_night <- Cleaned %>%
+  group_by(Nights= as.factor(Nights.Stay)) %>%
+  summarise(Total_profit = sum(Profit))
+
+Profits_per_night
+
+
+#Plotting to see if their is a difference in profits over different months and length of stay, I also input a horizontal average for profit to give a measurement across the whole year.
+
+Profit_boxplot<- Cleaned %>%
+  ggplot(aes(x = as.factor(Nights.Stay), y = Profit)) + 
+  geom_boxplot(aes(y = Profit), color="orange", fill="green", alpha=0.2) +
+  xlab("Nights Stayed") + ylab("Profit($)") +ggtitle("Guest Circle Profit per nights stayed, faceted by month") + 
+  facet_grid(.~month)+ geom_hline(aes(yintercept = mean(Profit)), color = "red") + 
+  theme_dark()
+
+Profit_boxplot
+
+```
+
+
+
+
+### What does this plot say?
+
+Although I would prefer to have more data for this single property, I still had a large enough sample to see some significant trends. For example, in the boxplot it is obvious that this property struggles the most from October to the Beginning of December. The average horizontal line does a great job of giving a threshold to compare with all months.
+
+
+```{r echo=TRUE}
+#Creating a plot to see how profit is affected by different variables like Child_ratio, Payment Type, and the time of year.
+
+Blob_Plot<- Cleaned %>%
+  ggplot(aes(x = Check_in, y = Profit)) +
+  geom_point(aes(color = Payment.Type, size = Child_ratio)) +
+  geom_line(aes(y = ServiceFee)) +
+  ggtitle("Profit thoughout the year")
+
+Blob_Plot
+```
+
+
+
+
+### Messy plot with interesting patterns.
+
+This plot is extremely useful in telling some secrets about the business and addressing our research question. One thing that sticks out first is of the obvious lack of children between 7.18 and 1.19 this would be a great finding to discuss with the homeowner and inquire about what happened. I also find the payment type to be useful. The most profit comes from RDD payments and the least comes from a charge when refunding to people who cancel. Although messy, this plot has some interesting characteristics that I believe could be a good program to run on property data in order to get a quick summary of their history in a compact form.
+
